@@ -40,12 +40,21 @@ func main() {
 		assetIds[i] = t.TokenID
 	}
 
-	msgChan := make(chan []byte)
-	if err := market.StartOrderBookStream(assetIds, msgChan); err != nil {
+	// STARTING ALL THE STREAMS HERE
+	// OrderBook Stream
+	orderBookChan := make(chan []byte)
+	if err := market.StartOrderBookStream(assetIds, orderBookChan); err != nil {
 		log.Fatal(err)
 	}
-
-	// 5. Run the Stream Processor (Pipes WS -> Redis)
 	fmt.Println("🚀 Streaming to Redis. Press Ctrl+C to stop.")
-	streamer.StartProcessor(ctx, rdb, msgChan)
+	go streamer.ProcessStream(ctx, rdb, "orderbook", orderBookChan)
+
+	// Discovery Stream
+	discoveryChan := make(chan []byte)
+	if err := market.StartDiscoveryStream(discoveryChan); err != nil {
+		log.Fatal(err)
+	}
+	go streamer.ProcessStream(ctx, rdb, "discovery", discoveryChan)
+
+	select {}
 }

@@ -38,31 +38,41 @@ func RegisterMetadata(ctx context.Context, rdb *redis.Client, slug string, token
 	return err
 }
 
-func StartProcessor(ctx context.Context, rdb *redis.Client, msgChan <-chan []byte) {
+func ProcessStream(ctx context.Context, rdb *redis.Client, namespace string, msgChan <-chan []byte) {
 	for rawMsg := range msgChan {
-		// Polymarket sometimes sends an array [{}, {}]
+		// If namespace is discovery, we don't route by AssetID
+		if namespace == "discovery" {
+			PushToStream(ctx, rdb, namespace, "all", rawMsg)
+			continue
+		}
+
+		// Standard Per-Asset Routing (for orderbook, trades, etc.)
 		if len(rawMsg) > 0 && rawMsg[0] == '[' {
 			var batch []RouterMsg
 			if err := json.Unmarshal(rawMsg, &batch); err == nil {
 				for _, m := range batch {
-					routeToRedis(ctx, rdb, m.AssetID, rawMsg)
+					PushToStream(ctx, rdb, namespace, m.AssetID, rawMsg)
 				}
 			}
 		} else {
 			var m RouterMsg
 			if err := json.Unmarshal(rawMsg, &m); err == nil {
-				routeToRedis(ctx, rdb, m.AssetID, rawMsg)
+				PushToStream(ctx, rdb, namespace, m.AssetID, rawMsg)
 			}
 		}
 	}
 }
 
-func routeToRedis(ctx context.Context, rdb *redis.Client, assetID string, data []byte) {
-	if assetID == "" {
+// PushToStream sends raw data to a Redis stream identified by a namespace and an ID.
+// This is the core dispatcher for the ingestion pipeline.
+func PushToStream(ctx context.Context, rdb *redis.Client, namespace string, identifier string, data []byte) {
+	if identifier == "" {
 		return
 	}
 
-	streamKey := fmt.Sprintf("market:stream:%s", assetID)
+	// Format: <namespace>:stream:<identifier> (e.g., market:stream:0x123)
+	streamKey := fmt.Sprintf("%s:stream:%s", namespace, identifier)
+
 	err := rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: streamKey,
 		MaxLen: 1000,
@@ -71,6 +81,6 @@ func routeToRedis(ctx context.Context, rdb *redis.Client, assetID string, data [
 	}).Err()
 
 	if err != nil {
-		log.Printf("Redis Stream Error: %v", err)
+		log.Printf("Redis Stream Error [%s]: %v", streamKey, err)
 	}
 }
