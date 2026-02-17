@@ -63,8 +63,6 @@ func ProcessStream(ctx context.Context, rdb *redis.Client, namespace string, msg
 	}
 }
 
-// PushToStream sends raw data to a Redis stream identified by a namespace and an ID.
-// This is the core dispatcher for the ingestion pipeline.
 func PushToStream(ctx context.Context, rdb *redis.Client, namespace string, identifier string, data []byte) {
 	if identifier == "" {
 		return

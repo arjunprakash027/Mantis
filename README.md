@@ -46,6 +46,7 @@ The "Exchange Firehose" containing snapshots of all active markets:
 *   `oneDayPriceChange` / `oneHourPriceChange`: Price momentum.
 *   `spread`: Market efficiency indicator.
 *   `clobTokenIds`: Instant routing IDs for orderbook streaming.
+*   `outcomes` / `outcomePrices`: Raw lists for outcome names and equilibrium prices.
 
 ### 2. Real-Time Orderbook (Stream)
 Low-latency per-asset L2 updates:

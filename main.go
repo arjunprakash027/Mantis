@@ -4,57 +4,74 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
+	"github.com/arjunprakash027/Mantis/config"
 	"github.com/arjunprakash027/Mantis/market"
 	"github.com/arjunprakash027/Mantis/streamer"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run main.go <slug>")
+	// 1. Load Configuration
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	slug := os.Args[1]
-
-	// 1. Setup Redis
+	// 2. Setup Redis
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 	ctx := context.Background()
 
-	// 2. Fetch Tokens
+	fmt.Println("🐝 Mantis Data Engine Starting...")
+
+	// 3. Start Orderbook Pipelines
+	if cfg.Pipelines.Orderbook.Enabled {
+		fmt.Printf("🚀 Starting Orderbook Pipelines for %d markets...\n", len(cfg.Pipelines.Orderbook.Markets))
+		for _, slug := range cfg.Pipelines.Orderbook.Markets {
+			go startOrderbookForSlug(ctx, rdb, slug)
+		}
+	}
+
+	// 4. Start Discovery Pipeline
+	if cfg.Pipelines.Discovery.Enabled {
+		fmt.Printf("🚀 Starting Discovery Pipeline for every %d minutes...\n", cfg.Pipelines.Discovery.IntervalMinutes)
+		discoveryChan := make(chan []byte)
+		if err := market.StartDiscoveryStream(discoveryChan); err != nil {
+			log.Printf("Discovery Error: %v", err)
+		} else {
+			go streamer.ProcessStream(ctx, rdb, "discovery", discoveryChan)
+		}
+	}
+
+	fmt.Println("pipelines active. Press Ctrl+C to stop.")
+	select {}
+}
+
+func startOrderbookForSlug(ctx context.Context, rdb *redis.Client, slug string) {
+	// A. Fetch Tokens
 	tokens, eventTitle, err := market.GetTokens(slug)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("[%s] Lookup Error: %v", slug, err)
+		return
 	}
 
-	// 3. Register Metadata (for the Python bot)
-	fmt.Printf("📝 Registering metadata for %d tokens in: %s\n", len(tokens), eventTitle)
+	// B. Register Metadata
 	if err := streamer.RegisterMetadata(ctx, rdb, slug, tokens); err != nil {
-		log.Printf("Metadata warning: %v", err)
+		log.Printf("[%s] Metadata warning: %v", slug, err)
 	}
 
-	// 4. Start WebSocket Stream
+	// C. Start Stream
 	assetIds := make([]string, len(tokens))
 	for i, t := range tokens {
 		assetIds[i] = t.TokenID
 	}
 
-	// STARTING ALL THE STREAMS HERE
-	// OrderBook Stream
-	orderBookChan := make(chan []byte)
-	if err := market.StartOrderBookStream(assetIds, orderBookChan); err != nil {
-		log.Fatal(err)
+	msgChan := make(chan []byte)
+	if err := market.StartOrderBookStream(assetIds, msgChan); err != nil {
+		log.Printf("[%s] Stream Error: %v", slug, err)
+		return
 	}
-	fmt.Println("🚀 Streaming to Redis. Press Ctrl+C to stop.")
-	go streamer.ProcessStream(ctx, rdb, "orderbook", orderBookChan)
 
-	// Discovery Stream
-	discoveryChan := make(chan []byte)
-	if err := market.StartDiscoveryStream(discoveryChan); err != nil {
-		log.Fatal(err)
-	}
-	go streamer.ProcessStream(ctx, rdb, "discovery", discoveryChan)
-
-	select {}
+	fmt.Printf("✅ Streaming %s (%d tokens)\n", eventTitle, len(tokens))
+	streamer.ProcessStream(ctx, rdb, "orderbook", msgChan)
 }

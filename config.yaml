@@ -1,0 +1,14 @@
+# Mantis Configuration
+# Manage your data pipelines and target markets here.
+
+pipelines:
+  # Global exchange scanner
+  discovery:
+    enabled: false
+    interval_minutes: 10
+
+  # Targeted real-time orderbook streams
+  orderbook:
+    enabled: true
+    markets:
+      - bitcoin-up-or-down-february-17-9am-et

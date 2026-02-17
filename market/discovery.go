@@ -27,8 +27,10 @@ type DiscoveryMarket struct {
 	Spread    float64 `json:"spread"`
 
 	// Metadata & Routing
-	Category     string `json:"category"`
-	ClobTokenIds string `json:"clobTokenIds"`
+	Category      string `json:"category"`
+	ClobTokenIds  string `json:"clobTokenIds"`
+	Outcomes      string `json:"outcomes"`
+	OutcomePrices string `json:"outcomePrices"`
 }
 
 // StartDiscoveryStream periodically fetches ALL active markets and pushes them to Redis
