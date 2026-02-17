@@ -15,13 +15,27 @@ type DiscoveryMarket struct {
 	Slug      string  `json:"slug"`
 	Liquidity float64 `json:"liquidity,string"`
 	Volume    float64 `json:"volume,string"`
+
+	// Timing (For finding "New" markets)
+	StartDate string `json:"startDateIso"`
+	EndDate   string `json:"endDateIso"`
+
+	// Prices & Analytics (Numbers in API)
+	LastPrice float64 `json:"lastTradePrice"`
+	Change24h float64 `json:"oneDayPriceChange"`
+	Change1h  float64 `json:"oneHourPriceChange"`
+	Spread    float64 `json:"spread"`
+
+	// Metadata & Routing
+	Category     string `json:"category"`
+	ClobTokenIds string `json:"clobTokenIds"`
 }
 
 // StartDiscoveryStream periodically fetches ALL active markets and pushes them to Redis
 func StartDiscoveryStream(ch chan<- []byte) error {
 	base := "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=100&order=startDate&ascending=false"
 	fmt.Printf("Discovery Stream Started..")
-	
+
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		for {

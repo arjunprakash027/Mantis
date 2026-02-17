@@ -1,53 +1,65 @@
 # Mantis
 
-Mantis is a high-performance market data collector designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's real-time WebSocket infrastructure and local high-frequency trading systems by piping live orderbook data into a low-latency Redis backend.
+Mantis is a high-performance market data collector designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global API/WebSocket infrastructure and local high-frequency trading systems by piping live data into a low-latency Redis backend.
 
 ## Architecture
 
-Mantis is built in Go for speed and safety. It follows a clean pipeline:
-1.  **Discovery**: Resolves market or event slugs into a complete list of CLOB asset IDs.
-2.  **Registration**: Stores static metadata (market names, outcomes, slugs) in Redis for instant "offline" lookup by downstream bots.
-3.  **Ingestion**: Maintains a high-speed WebSocket connection to the Polymarket CLOB.
-4.  **Routing**: Quick-parses incoming L2 orderbook updates and routes them into individual per-asset Redis Streams.
+Mantis is built in Go for speed and safety, utilizing a modular "One-Channel-Per-Stream" architecture. It runs multiple concurrent data pipelines:
+
+1.  **Global Discovery Engine**: Periodically scans the entire exchange (pagination over ~28k+ active markets) to find the newest and most liquid opportunities.
+2.  **Smart Metadata Registry**: Maps market slugs to underlying CLOB asset IDs and outcome names, allowing bots to perform discovery without hitting Polymarket APIs.
+3.  **High-Speed Ingestion**: Maintains persistent WebSocket connections to the Polymarket CLOB for real-time L2 orderbook updates.
+4.  **Multi-Namespace Routing**: Dispatches raw data into isolated Redis Streams (`orderbook`, `discovery`, etc.) for specialized bot consumption.
 
 ## Current Progress
 
-- [x] **Smart Slug Resolution**: Automatically detects if a slug is a single Market or a large Event with multiple internal markets.
-- [x] **Redis Integration**: Implemented a modular `streamer` package using Redis Streams and Hashes.
-- [x] **High-Speed Routing**: Real-time distribution of WebSocket messages into filtered Redis keys.
-- [x] **Metadata Mapping**: Indexed slug-to-asset relationships to allow bots to "discover" available tokens without API calls.
+- [x] **Full Exchange Discovery**: Automated pagination to fetch and index all active markets every 10 minutes.
+- [x] **Advanced Analytical Signals**: Discovery data now includes price momentum (1h/24h), liquidity depth, spreads, and creation timestamps.
+- [x] **Modular Streamer**: Refactored `streamer` package with generalized `PushToStream` logic and namespaced keys.
+- [x] **Concurrency Layer**: Multi-threaded execution allows simultaneous monitoring of specific slugs and global exchange discovery.
+- [x] **Redis-Agnostic Routing**: Intelligent handling of both single-asset snapshots and global exchange-wide updates.
 
 ## Getting Started
 
 ### Prerequisites
 - Go 1.21+
-- Redis (running locally on port 6379)
+- Redis (running locally on port 6379, recommended with `appendonly yes` for persistence)
 
 ### Running the Collector
 ```bash
 # Start your local Redis
 brew services start redis
 
-# Build and run the collector for a specific slug
+# Run the collector for a target market/event
+# This will simultaneously stream the target and scan the whole exchange
 go run main.go us-strikes-iran-by
 ```
 
-## Data Schema
+## Data Schema & Discovery
 
-### Metadata (Hashes)
-Standard lookup for token descriptions:
-`HGETALL token:meta:<asset_id>`
+### 1. Global Market Discovery (Stream)
+The "Exchange Firehose" containing snapshots of all active markets:
+`XREAD BLOCK 0 STREAMS discovery:stream:all $`
 
-### Asset Indexing (Sets)
-Retrieve all tokens belonging to a specific slug:
-`SMEMBERS slug:assets:<slug>`
+**Available Signals (JSON):**
+*   `startDateIso` / `endDateIso`: Timing for age-based filtering.
+*   `oneDayPriceChange` / `oneHourPriceChange`: Price momentum.
+*   `spread`: Market efficiency indicator.
+*   `clobTokenIds`: Instant routing IDs for orderbook streaming.
 
-### Live Streams (Streams)
-The high-speed pipeline for L2 snapshots:
-`XREAD BLOCK 0 STREAMS market:stream:<asset_id> $`
+### 2. Real-Time Orderbook (Stream)
+Low-latency per-asset L2 updates:
+`XREAD BLOCK 0 STREAMS orderbook:stream:<asset_id> $`
+
+### 3. Metadata & Indexing (Hashes & Sets)
+*   **Token Lookup**: `HGETALL token:meta:<asset_id>`
+*   **Slug Index**: `SMEMBERS slug:assets:<slug>`
 
 ## Trading Bot Integration
 
-Mantis is designed to be the foundational "data layer" for a suite of quantitative trading tools. By standardizing the data into Redis, it allows multiple specialized trading bots (written in Python, Rust, or C++) to consume isolated, high-speed price streams without duplicating API overhead or network connections.
+Mantis serves as the centralized data layer for distributed trading architectures. By decoupling data ingestion (Go) from strategy execution (Python/Rust), it ensures:
+- **Zero Duplication**: One network connection serves unlimited local bots.
+- **Micro-millisecond Latency**: Redis Streams provide an extremely fast inter-process communication (IPC) layer.
+- **Durability**: Bots can "go offline" and catch up on missed market movements using Redis Stream IDs.
 
 *Note: The trading strategy implementations and execution modules remain internal and private.*
