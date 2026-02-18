@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/arjunprakash027/Mantis/config"
+	"github.com/arjunprakash027/Mantis/executor"
 	"github.com/arjunprakash027/Mantis/market"
 	"github.com/arjunprakash027/Mantis/streamer"
 	"github.com/redis/go-redis/v9"
@@ -20,15 +24,18 @@ func main() {
 
 	// 2. Setup Redis
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	fmt.Println("🐝 Mantis Data Engine Starting...")
+
+	marketEngine := streamer.NewEngine(ctx, rdb)
 
 	// 3. Start Orderbook Pipelines
 	if cfg.Pipelines.Orderbook.Enabled {
 		fmt.Printf("🚀 Starting Orderbook Pipelines for %d markets...\n", len(cfg.Pipelines.Orderbook.Markets))
 		for _, slug := range cfg.Pipelines.Orderbook.Markets {
-			go startOrderbookForSlug(ctx, rdb, slug)
+			go startOrderbookForSlug(marketEngine, slug)
 		}
 	}
 
@@ -39,15 +46,25 @@ func main() {
 		if err := market.StartDiscoveryStream(discoveryChan); err != nil {
 			log.Printf("Discovery Error: %v", err)
 		} else {
-			go streamer.ProcessStream(ctx, rdb, "discovery", discoveryChan)
+			go marketEngine.ProcessStream("discovery", discoveryChan)
 		}
 	}
 
-	fmt.Println("pipelines active. Press Ctrl+C to stop.")
-	select {}
+	exec := executor.NewExecutor(ctx, rdb, marketEngine)
+	go exec.Start()
+
+	fmt.Println("✅ Pipelines & Executor active. Press Ctrl+C to stop.")
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+
+	log.Println("Shutting down Mantis...")
+	cancel()
+	rdb.Close()
 }
 
-func startOrderbookForSlug(ctx context.Context, rdb *redis.Client, slug string) {
+func startOrderbookForSlug(engine *streamer.Engine, slug string) {
 	// A. Fetch Tokens
 	tokens, eventTitle, err := market.GetTokens(slug)
 	if err != nil {
@@ -56,7 +73,7 @@ func startOrderbookForSlug(ctx context.Context, rdb *redis.Client, slug string) 
 	}
 
 	// B. Register Metadata
-	if err := streamer.RegisterMetadata(ctx, rdb, slug, tokens); err != nil {
+	if err := engine.RegisterMetadata(slug, tokens); err != nil {
 		log.Printf("[%s] Metadata warning: %v", slug, err)
 	}
 
@@ -67,11 +84,12 @@ func startOrderbookForSlug(ctx context.Context, rdb *redis.Client, slug string) 
 	}
 
 	msgChan := make(chan []byte)
-	if err := market.StartOrderBookStream(assetIds, msgChan); err != nil {
+	if err := market.StartOrderBookStream(engine.GetContext(), assetIds, msgChan); err != nil {
 		log.Printf("[%s] Stream Error: %v", slug, err)
 		return
 	}
 
 	fmt.Printf("✅ Streaming %s (%d tokens)\n", eventTitle, len(tokens))
-	streamer.ProcessStream(ctx, rdb, "orderbook", msgChan)
+
+	engine.ProcessStream("orderbook", msgChan)
 }

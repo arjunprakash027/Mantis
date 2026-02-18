@@ -11,4 +11,4 @@ pipelines:
   orderbook:
     enabled: true
     markets:
-      - bitcoin-up-or-down-february-17-9am-et
+      - bitcoin-up-or-down-february-18-4pm-et
