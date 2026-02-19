@@ -132,7 +132,6 @@ func (e *Engine) updateCache(rawMsg []byte) {
 
 		if updated {
 			state.LastUpdated = time.Now().UnixNano()
-			fmt.Printf("Updated state: %v\n", state)
 			e.prices[u.AssetID] = state
 		}
 	}
