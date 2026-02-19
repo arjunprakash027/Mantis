@@ -21,7 +21,7 @@ type MarketState struct {
 
 type Engine struct {
 	rdb    *redis.Client
-	prices map[string]MarketState //the cache where our order placing paper engine will look at to determine the latest price of tokens
+	prices map[string]MarketState
 	mu     sync.RWMutex
 	ctx    context.Context
 }
@@ -59,7 +59,6 @@ func (e *Engine) GetPrice(assetID string) (MarketState, bool) {
 
 func (e *Engine) ProcessStream(namespace string, msgChan <-chan []byte) {
 	for rawMsg := range msgChan {
-		// Update internal price cache for the paper executor
 		if namespace == "orderbook" {
 			e.updateCache(rawMsg)
 		}
@@ -114,7 +113,6 @@ func (e *Engine) updateCache(rawMsg []byte) {
 		state := e.prices[u.AssetID]
 		updated := false
 
-		// Best Bid is at LAST index
 		if n := len(u.Bids); n > 0 {
 			if price, err := strconv.ParseFloat(u.Bids[n-1].Price, 64); err == nil {
 				state.BestBid = price
@@ -122,7 +120,6 @@ func (e *Engine) updateCache(rawMsg []byte) {
 			}
 		}
 
-		// Best Ask is at LAST index
 		if n := len(u.Asks); n > 0 {
 			if price, err := strconv.ParseFloat(u.Asks[n-1].Price, 64); err == nil {
 				state.BestAsk = price
@@ -137,7 +134,6 @@ func (e *Engine) updateCache(rawMsg []byte) {
 	}
 }
 
-
 func (e *Engine) pushToRedis(namespace string, rawMsg []byte) {
 
 	type RouterMsg struct {
@@ -149,7 +145,6 @@ func (e *Engine) pushToRedis(namespace string, rawMsg []byte) {
 		return
 	}
 
-	// Route by AssetID
 	if len(rawMsg) > 0 && rawMsg[0] == '[' {
 		var batch []RouterMsg
 		if json.Unmarshal(rawMsg, &batch) == nil {
@@ -170,7 +165,6 @@ func (e *Engine) streamAdd(namespace string, identifier string, data []byte) {
 		return
 	}
 
-	// Format: <namespace>:stream:<identifier> (e.g., market:stream:0x123)
 	streamKey := fmt.Sprintf("%s:stream:%s", namespace, identifier)
 
 	err := e.rdb.XAdd(e.ctx, &redis.XAddArgs{

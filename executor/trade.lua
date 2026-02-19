@@ -9,12 +9,10 @@ local total_cost = tonumber(ARGV[5])
 local timestamp = ARGV[6]
 local strategy_id = ARGV[7]
 
--- Metadata Lookup
 local meta_key = "token:meta:" .. asset
 local outcome = redis.call('HGET', meta_key, 'outcome') or 'unknown'
 local market = redis.call('HGET', meta_key, 'market') or 'unknown'
 
--- Validation
 if action == "BUY" then
     local usd_balance = tonumber(redis.call('HGET', portfolio_key, 'USD') or 0)
     if usd_balance < total_cost then
@@ -35,7 +33,6 @@ end
 local final_usd = redis.call('HGET', portfolio_key, 'USD')
 local final_asset = redis.call('HGET', portfolio_key, asset)
 
--- Audit Log (Rich Data for Analysis)
 redis.call('XADD', trade_log_key, '*', 
     'action', action, 'asset_id', asset, 'market', market, 'outcome', outcome,
     'amount', amount, 'price', price, 'total', total_cost, 

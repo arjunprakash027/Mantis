@@ -12,7 +12,7 @@ import (
 )
 
 type Signal struct {
-	Action     string  `json:"action"` // "BUY" or "SELL"
+	Action     string  `json:"action"`
 	Asset      string  `json:"asset"`
 	Amount     float64 `json:"amount"`
 	StrategyID string  `json:"strategy_id"`
@@ -49,7 +49,6 @@ func NewExecutor(ctx context.Context, rdb *redis.Client, engine *streamer.Engine
 func (e *Executor) Start() {
 
 	log.Println("🚀 Executor Started: Listening on signals:inbound")
-	// Ensure consumer group exists
 	e.rdb.XGroupCreateMkStream(e.ctx, "signals:inbound", "mantis_executors", "$")
 
 	for {
@@ -94,7 +93,6 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 		return
 	}
 
-	// If price hasn't been updated in 60s, it's a "zombie" price
 	if time.Now().Unix()-priceState.LastUpdated > 60 {
 		e.respond(sig, ExecutionResult{Success: false, ErrorMsg: "Stale price (stream lagging or dead)"})
 		return

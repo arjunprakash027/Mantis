@@ -1,4 +1,3 @@
-// Go code to fetch all current markets (discovery)
 package market
 
 import (
@@ -8,7 +7,6 @@ import (
 	"time"
 )
 
-// Simplified Market struct using only what we need
 type DiscoveryMarket struct {
 	ID        string  `json:"id"`
 	Question  string  `json:"question"`
@@ -16,24 +14,20 @@ type DiscoveryMarket struct {
 	Liquidity float64 `json:"liquidity,string"`
 	Volume    float64 `json:"volume,string"`
 
-	// Timing (For finding "New" markets)
 	StartDate string `json:"startDateIso"`
 	EndDate   string `json:"endDateIso"`
 
-	// Prices & Analytics (Numbers in API)
 	LastPrice float64 `json:"lastTradePrice"`
 	Change24h float64 `json:"oneDayPriceChange"`
 	Change1h  float64 `json:"oneHourPriceChange"`
 	Spread    float64 `json:"spread"`
 
-	// Metadata & Routing
 	Category      string `json:"category"`
 	ClobTokenIds  string `json:"clobTokenIds"`
 	Outcomes      string `json:"outcomes"`
 	OutcomePrices string `json:"outcomePrices"`
 }
 
-// StartDiscoveryStream periodically fetches ALL active markets and pushes them to Redis
 func StartDiscoveryStream(ch chan<- []byte) error {
 	base := "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=100&order=startDate&ascending=false"
 	fmt.Printf("Discovery Stream Started..")

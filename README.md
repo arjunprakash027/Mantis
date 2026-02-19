@@ -90,6 +90,23 @@ All portfolio data is stored in the `portfolio:balance` hash.
 - **Inbound Signals**: `signals:inbound` (Format: `{"action": "BUY", "asset": "ID", "amount": 1.0}`)
 - **Outbound Results**: `signals:outbound` (Contains fill price, timestamp, and any error messages).
 
+## Examples (Python)
+
+To help you get started with building bots on top of Mantis, check out the `examples/` directory.
+
+### 1. Orderbook Streamer (`examples/get_order_book.py`)
+A simple listener that connects to Redis and prints live Best Bid/Offer (BBO) updates as Mantis pushes them. Perfect for seeing the data firehose in action.
+
+### 2. Random Trader (`examples/random_trader.py`)
+A simulated strategy that places random small BUY/SELL orders every few seconds to test your executor and portfolio logic.
+
+**How to run examples:**
+```bash
+cd examples
+pip install -r requirements.txt
+python3 get_order_book.py <TOKEN_ID>
+```
+
 ---
 
 *Note: The trading strategy implementations and execution modules remain internal and private (Simulated context).*
