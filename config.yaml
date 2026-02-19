@@ -11,4 +11,4 @@ pipelines:
   orderbook:
     enabled: true
     markets:
-      - bitcoin-up-or-down-february-18-4pm-et
+      - crint-lka-zwe-2026-02-19

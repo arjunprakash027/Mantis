@@ -28,8 +28,6 @@ type Engine struct {
 
 type OrderbookUpdate struct {
 	AssetID string `json:"asset_id"`
-	BestBid string `json:"best_bid"` // Explicit best bid
-	BestAsk string `json:"best_ask"` // Explicit best ask
 	Bids    []struct {
 		Price string `json:"price"`
 		Size  string `json:"size"`
@@ -88,13 +86,18 @@ func (e *Engine) RegisterMetadata(slug string, tokens []market.Token) error {
 }
 
 func (e *Engine) updateCache(rawMsg []byte) {
-	var updates []OrderbookUpdate
+	if len(rawMsg) == 0 {
+		return
+	}
 
-	if len(rawMsg) > 0 && rawMsg[0] == '[' {
-		json.Unmarshal(rawMsg, &updates)
+	var updates []OrderbookUpdate
+	if rawMsg[0] == '[' {
+		if err := json.Unmarshal(rawMsg, &updates); err != nil {
+			return
+		}
 	} else {
 		var single OrderbookUpdate
-		if json.Unmarshal(rawMsg, &single) == nil {
+		if err := json.Unmarshal(rawMsg, &single); err == nil {
 			updates = append(updates, single)
 		}
 	}
@@ -102,67 +105,39 @@ func (e *Engine) updateCache(rawMsg []byte) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	for _, u := range updates {
+	for i := range updates {
+		u := &updates[i]
 		if u.AssetID == "" {
 			continue
 		}
 
-		state, exists := e.prices[u.AssetID]
-		if !exists {
-			state = MarketState{}
-		}
-
+		state := e.prices[u.AssetID]
 		updated := false
 
-		// 1. Try explicit BestBid/Ask fields (sent in price_change events)
-		if u.BestBid != "" {
-			if v, err := strconv.ParseFloat(u.BestBid, 64); err == nil {
-				state.BestBid = v
-				updated = true
-			}
-		} else if len(u.Bids) > 0 {
-			// Find MAX bid price
-			maxBid := -1.0
-			for _, b := range u.Bids {
-				if v, err := strconv.ParseFloat(b.Price, 64); err == nil {
-					if v > maxBid {
-						maxBid = v
-					}
-				}
-			}
-			if maxBid != -1.0 {
-				state.BestBid = maxBid
+		// Best Bid is at LAST index
+		if n := len(u.Bids); n > 0 {
+			if price, err := strconv.ParseFloat(u.Bids[n-1].Price, 64); err == nil {
+				state.BestBid = price
 				updated = true
 			}
 		}
 
-		if u.BestAsk != "" {
-			if v, err := strconv.ParseFloat(u.BestAsk, 64); err == nil {
-				state.BestAsk = v
-				updated = true
-			}
-		} else if len(u.Asks) > 0 {
-			// Find MIN ask price
-			minAsk := 2.0 // Prices are between 0 and 1
-			for _, a := range u.Asks {
-				if v, err := strconv.ParseFloat(a.Price, 64); err == nil {
-					if v < minAsk {
-						minAsk = v
-					}
-				}
-			}
-			if minAsk != 2.0 {
-				state.BestAsk = minAsk
+		// Best Ask is at LAST index
+		if n := len(u.Asks); n > 0 {
+			if price, err := strconv.ParseFloat(u.Asks[n-1].Price, 64); err == nil {
+				state.BestAsk = price
 				updated = true
 			}
 		}
 
 		if updated {
-			state.LastUpdated = time.Now().Unix()
+			state.LastUpdated = time.Now().UnixNano()
+			fmt.Printf("Updated state: %v\n", state)
 			e.prices[u.AssetID] = state
 		}
 	}
 }
+
 
 func (e *Engine) pushToRedis(namespace string, rawMsg []byte) {
 
