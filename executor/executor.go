@@ -42,7 +42,7 @@ func NewExecutor(ctx context.Context, rdb *redis.Client, engine *streamer.Engine
 	return &Executor{
 		rdb:    rdb,
 		engine: engine,
-		ctx:    context.Background(),
+		ctx:    ctx,
 	}
 }
 
@@ -59,6 +59,10 @@ func (e *Executor) Start() {
 			Count:    1,
 			Block:    0,
 		}).Result()
+
+		if e.ctx.Err() != nil {
+			return
+		}
 
 		if err != nil {
 			log.Printf("Redis Stream Error [%s]: %v", "signals:inbound", err)
