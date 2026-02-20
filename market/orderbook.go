@@ -13,9 +13,16 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 	go func() {
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
-			log.Printf("❌ WebSocket Dial Error: %v", err)
-			return
+
+			if ctx.Err() != nil {
+				log.Printf("💡 WebSocket Stream Stopped by Context")
+				return
+			} else {
+				log.Printf("❌ WebSocket Dial Error: %v", err)
+				return
+			}
 		}
+
 		defer conn.Close()
 
 		subMsg := map[string]interface{}{
