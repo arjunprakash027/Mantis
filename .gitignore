@@ -34,3 +34,9 @@ go.work.sum
 # Build caches and temp files
 .cache/
 .tmp/
+
+# deployment
+deploy.sh
+
+# Binary
+mantis
