@@ -90,6 +90,43 @@ All portfolio data is stored in the `portfolio:balance` hash.
 - **Inbound Signals**: `signals:inbound` (Format: `{"action": "BUY", "asset": "ID", "amount": 1.0}`)
 - **Outbound Results**: `signals:outbound` (Contains fill price, timestamp, and any error messages).
 
+## Deployment
+
+Mantis includes an automated deployment script (`deploy.sh`) to cross-compile and ship the binary to your remote VPS.
+
+### 1. Prerequisite: SSH Alias
+To use the script seamlessy, set up an SSH alias for your server. Open or create `~/.ssh/config` on your Mac and add:
+
+```text
+Host server-alias
+    HostName <YOUR_SERVER_IP>
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+*For more details on SSH config, see: [Speed up SSH by using Aliases](https://www.cyberciti.biz/faq/create-ssh-config-file-on-linux-unix/)*
+
+### 2. Passwordless Login (Recommended)
+Set up SSH keys so you don't have to type your password every time you deploy:
+
+```bash
+# Copy your local key to the server
+ssh-copy-id server-alias
+```
+
+### 3. Running Deployment
+The script handles Linux (AMD64) cross-compilation and file transfer via SCP.
+
+```bash
+# Make the script executable
+chmod +x deploy.sh
+
+# Build & Deploy
+./deploy.sh
+```
+
+---
+
 ## Examples (Python)
 
 To help you get started with building bots on top of Mantis, check out the `examples/` directory.

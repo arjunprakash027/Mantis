@@ -35,8 +35,5 @@ go.work.sum
 .cache/
 .tmp/
 
-# deployment
-deploy.sh
-
 # Binary
 mantis
