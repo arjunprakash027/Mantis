@@ -11,4 +11,4 @@ pipelines:
   orderbook:
     enabled: true
     markets:
-      - 2026-fifa-world-cup-winner-595
+      - crint-ind-nzl-2026-03-08
