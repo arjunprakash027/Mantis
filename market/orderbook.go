@@ -3,6 +3,8 @@ package market
 import (
 	"context"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -11,6 +13,7 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 	wsURL := "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 	go func() {
+
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 
@@ -25,14 +28,39 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 
 		defer conn.Close()
 
+		var mu sync.Mutex
+
 		subMsg := map[string]interface{}{
 			"type":       "market",
 			"assets_ids": assetIds,
 		}
+
+		mu.Lock()
 		if err := conn.WriteJSON(subMsg); err != nil {
 			log.Printf("WebSocket Sub Error: %v", err)
 			return
 		}
+		mu.Unlock()
+
+		// Pinging the API with PING to let it know we are still listening
+		go func() {
+			ticker := time.NewTicker(20 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					mu.Lock()
+					if err := conn.WriteMessage(websocket.TextMessage, []byte("PING")); err != nil {
+						log.Printf("WebSocket Sub Error: %v", err)
+						mu.Unlock()
+						return
+					}
+					mu.Unlock()
+				}
+			}
+		}()
 
 		go func() {
 			<-ctx.Done()

@@ -20,6 +20,7 @@ def stream_orderbook(token_id):
                     for msg_id, data in messages:
                         raw_payload = data['data']
                         payload = json.loads(raw_payload)
+                        print("Length of stream: ",r.xlen(stream_key))
                         try:
                             bids = payload['bids']
                             asks = payload['asks']
@@ -29,7 +30,10 @@ def stream_orderbook(token_id):
                         bids.sort(key=lambda x: float(x['price']), reverse=True)
                         asks.sort(key=lambda x: float(x['price']))
                         
-                        print(f"Best Bid: {bids[0]['price']} | Best Ask: {asks[0]['price']}")
+                        if bids and asks:
+                            print(f"Best Bid: {bids[0]['price']} | Best Ask: {asks[0]['price']}")
+                        else:
+                            print("Orderbook empty or one-sided")
                         last_id = msg_id
     except KeyboardInterrupt:
         print("\nStopping...")
