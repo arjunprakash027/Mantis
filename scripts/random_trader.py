@@ -15,7 +15,7 @@ def random_trader(token_id):
     try:
         while True:
             action = random.choice(actions)
-            amount = round(random.uniform(0.1, 5.0), 2)
+            amount = round(random.uniform(1, 50), 2)
             
             signal = {
                 "action": action,

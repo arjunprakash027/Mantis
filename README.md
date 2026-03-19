@@ -45,10 +45,13 @@ pipelines:
 # 1. Start your local Redis
 brew services start redis
 
-# 2. Fund your paper trading account (Optional - Default is $0)
+# 2. Reset Database (Wipe everything to start fresh)
+redis-cli FLUSHALL
+
+# 3. Fund your paper trading account (Default is $0)
 redis-cli HSET portfolio:balance USD 1000
 
-# 3. Start Mantis
+# 4. Start Mantis
 go run main.go
 ```
 
@@ -69,13 +72,17 @@ All portfolio data is stored in the `portfolio:balance` hash.
 
 *   **View Balance & Positions**: `redis-cli HGETALL portfolio:balance`
 *   **Add Funds**: `redis-cli HINCRBYFLOAT portfolio:balance USD 500`
+*   **Wipe Balance**: `redis-cli DEL portfolio:balance`
 *   **View Trade History**: `redis-cli XRANGE trade:log - +`
+*   **Wipe History**: `redis-cli DEL trade:log`
 
 ### 3. Metadata Discovery (Redis)
 Mantis automatically maps market slugs to the necessary technical IDs.
 
+*   **List All Tracked Markets**: `redis-cli KEYS slug:assets:*`
 *   **Find Token IDs for a Market**: `redis-cli SMEMBERS slug:assets:<slug>`
 *   **View Token Details (Outcome/Market Name)**: `redis-cli HGETALL token:meta:<token_id>`
+*   **Check Stream Volume**: `redis-cli XLEN orderbook:stream:<asset_id>`
 
 ### 4. Execution Rules
 - **No Assumptions**: Orders are only filled if the engine has received an explicit `best_bid` or `best_ask` from the exchange.
@@ -135,18 +142,22 @@ chmod +x deploy.sh
 
 ## Examples (Python)
 
-To help you get started with building bots on top of Mantis, check out the `examples/` directory.
+To help you get started with building bots on top of Mantis, check out the `scripts/` directory.
 
-### 1. Orderbook Streamer (`examples/get_order_book.py`)
-A simple listener that connects to Redis and prints live Best Bid/Offer (BBO) updates as Mantis pushes them. Perfect for seeing the data firehose in action.
+### 1. Account Info (`scripts/get_redis_information.py`)
+A comprehensive script that lists all tracked markets, their token IDs (with human names), and your current portfolio balance.
 
-### 2. Random Trader (`examples/random_trader.py`)
+### 2. Orderbook Streamer (`scripts/get_order_book.py`)
+A simple listener that connects to Redis and prints live Best Bid/Offer (BBO) updates as Mantis pushes them. Handles Polymarket batching and sorting automatically.
+
+### 3. Random Trader (`scripts/random_trader.py`)
 A simulated strategy that places random small BUY/SELL orders every few seconds to test your executor and portfolio logic.
 
-**How to run examples:**
+**How to run scripts:**
 ```bash
-cd examples
+cd scripts
 pip install -r requirements.txt
+python3 get_redis_information.py
 python3 get_order_book.py <TOKEN_ID>
 ```
 

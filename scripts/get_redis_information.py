@@ -17,6 +17,8 @@ if __name__ == "__main__":
             token_info = r.hgetall(f"token:meta:{token_id}")
             print(f"Token Info : {token_info}")
 
+    trade_log = r.xrange("trade:log", "-", "+") # can convert this into a csv if needed
+    print(f"Trade Log latest: {trade_log[-1]}")
     portfolio = r.hgetall("portfolio:balance")
 
     print(portfolio)
