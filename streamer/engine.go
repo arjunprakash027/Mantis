@@ -3,13 +3,13 @@ package streamer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/arjunprakash027/Mantis/market"
+	"github.com/arjunprakash027/Mantis/pkg/redismantis"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -68,10 +68,10 @@ func (e *Engine) ProcessStream(namespace string, msgChan <-chan []byte) {
 
 func (e *Engine) RegisterMetadata(slug string, tokens []market.Token) error {
 	pipe := e.rdb.Pipeline()
-	slugKey := fmt.Sprintf("slug:assets:%s", slug)
+	slugKey := redismantis.SetSlugAssets(slug)
 
 	for _, t := range tokens {
-		key := fmt.Sprintf("token:meta:%s", t.TokenID)
+		key := redismantis.HashTokenMeta(t.TokenID)
 		pipe.HSet(e.ctx, key, map[string]interface{}{
 			"id":      t.TokenID,
 			"outcome": t.Outcome,
@@ -165,7 +165,7 @@ func (e *Engine) streamAdd(namespace string, identifier string, data []byte) {
 		return
 	}
 
-	streamKey := fmt.Sprintf("%s:stream:%s", namespace, identifier)
+	streamKey := redismantis.StreamNamespaceDynamic(namespace, identifier)
 
 	err := e.rdb.XAdd(e.ctx, &redis.XAddArgs{
 		Stream: streamKey,

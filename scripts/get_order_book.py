@@ -8,7 +8,7 @@ r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 def stream_orderbook(token_id):
     """Simple listener for orderbook updates from Mantis."""
     stream_key = f"orderbook:stream:{token_id}"
-    print(f"👂 Listening for updates on {stream_key}...")
+    print(f"Listening for updates on {stream_key}...")
     
     last_id = '$'
     

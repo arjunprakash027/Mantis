@@ -71,7 +71,13 @@ All portfolio data is stored in the `portfolio:balance` hash.
 *   **Add Funds**: `redis-cli HINCRBYFLOAT portfolio:balance USD 500`
 *   **View Trade History**: `redis-cli XRANGE trade:log - +`
 
-### 3. Execution Rules
+### 3. Metadata Discovery (Redis)
+Mantis automatically maps market slugs to the necessary technical IDs.
+
+*   **Find Token IDs for a Market**: `redis-cli SMEMBERS slug:assets:<slug>`
+*   **View Token Details (Outcome/Market Name)**: `redis-cli HGETALL token:meta:<token_id>`
+
+### 4. Execution Rules
 - **No Assumptions**: Orders are only filled if the engine has received an explicit `best_bid` or `best_ask` from the exchange.
 - **Stale Guard**: If a price hasn't been updated in **60 seconds**, the executor will reject the trade to prevent "slippage" against dead data.
 - **Atomic Fills**: Using Lua scripts ensures that your balance update and trade logging happen as a single atomic unit—no partial fills or missed logs.

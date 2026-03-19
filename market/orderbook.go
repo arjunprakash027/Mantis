@@ -15,10 +15,10 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 		if err != nil {
 
 			if ctx.Err() != nil {
-				log.Printf("💡 WebSocket Stream Stopped by Context")
+				log.Printf("WebSocket Stream Stopped by Context")
 				return
 			} else {
-				log.Printf("❌ WebSocket Dial Error: %v", err)
+				log.Printf("WebSocket Dial Error: %v", err)
 				return
 			}
 		}
@@ -30,7 +30,7 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 			"assets_ids": assetIds,
 		}
 		if err := conn.WriteJSON(subMsg); err != nil {
-			log.Printf("❌ WebSocket Sub Error: %v", err)
+			log.Printf("WebSocket Sub Error: %v", err)
 			return
 		}
 
@@ -43,9 +43,9 @@ func StartOrderBookStream(ctx context.Context, assetIds []string, msgChan chan<-
 			_, message, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					log.Printf("💡 WebSocket Closed Gracefully")
+					log.Printf("WebSocket Closed Gracefully")
 				} else {
-					log.Printf("‼️ WebSocket CRASHED: %v", err)
+					log.Printf("WebSocket CRASHED: %v", err)
 				}
 				return
 			}

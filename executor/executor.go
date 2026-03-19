@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/arjunprakash027/Mantis/pkg/redismantis"
 	"github.com/arjunprakash027/Mantis/streamer"
 	"github.com/redis/go-redis/v9"
 )
@@ -48,14 +49,14 @@ func NewExecutor(ctx context.Context, rdb *redis.Client, engine *streamer.Engine
 
 func (e *Executor) Start() {
 
-	log.Println("🚀 Executor Started: Listening on signals:inbound")
-	e.rdb.XGroupCreateMkStream(e.ctx, "signals:inbound", "mantis_executors", "$")
+	log.Println("Executor Started: Listening on signals:inbound")
+	e.rdb.XGroupCreateMkStream(e.ctx, redismantis.StreamSignalsInbound, redismantis.GroupMantisExecutors, "$")
 
 	for {
 		streams, err := e.rdb.XReadGroup(e.ctx, &redis.XReadGroupArgs{
-			Group:    "mantis_executors",
-			Consumer: "worker_1",
-			Streams:  []string{"signals:inbound", ">"},
+			Group:    redismantis.GroupMantisExecutors,
+			Consumer: redismantis.ConsumerWorker1,
+			Streams:  []string{redismantis.StreamSignalsInbound, ">"},
 			Count:    1,
 			Block:    0,
 		}).Result()
@@ -71,7 +72,7 @@ func (e *Executor) Start() {
 
 		for _, msg := range streams[0].Messages {
 			e.processSignal(msg)
-			e.rdb.XAck(e.ctx, "signals:inbound", "mantis_executors", msg.ID)
+			e.rdb.XAck(e.ctx, redismantis.StreamSignalsInbound, redismantis.GroupMantisExecutors, msg.ID)
 		}
 	}
 }
@@ -81,12 +82,12 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 
 	dataStr, ok := msg.Values["data"].(string)
 	if !ok {
-		log.Printf("❌ Invalid signal format: missing 'data' field")
+		log.Printf("Invalid signal format: missing 'data' field")
 		return
 	}
 
 	if err := json.Unmarshal([]byte(dataStr), &sig); err != nil {
-		log.Printf("❌ Invalid JSON: %v", err)
+		log.Printf("Invalid JSON: %v", err)
 		return
 	}
 
@@ -117,7 +118,7 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 	totalCost := fillPrice * sig.Amount
 
 	res, err := tradeScript.Run(e.ctx, e.rdb,
-		[]string{"portfolio:balance", "trade:log"},
+		[]string{redismantis.HashPortfolioBalance, redismantis.HashTradeLog},
 		sig.Action, sig.Asset, sig.Amount, fillPrice, totalCost, time.Now().Unix(), sig.StrategyID,
 	).Result()
 
@@ -147,7 +148,7 @@ func (e *Executor) respond(sig Signal, res ExecutionResult) {
 	jsonRes, _ := json.Marshal(res)
 
 	e.rdb.XAdd(e.ctx, &redis.XAddArgs{
-		Stream: "signals:outbound",
+		Stream: redismantis.StreamSignalsOutbound,
 		Values: map[string]interface{}{
 			"strategy_id": sig.StrategyID,
 			"data":        jsonRes,
@@ -155,8 +156,8 @@ func (e *Executor) respond(sig Signal, res ExecutionResult) {
 	})
 
 	if res.Success {
-		log.Printf("✅ %s %s | Price: %.2f | Amount: %.2f", sig.Action, sig.Asset, res.FilledPrice, sig.Amount)
+		log.Printf("%s %s | Price: %.2f | Amount: %.2f", sig.Action, sig.Asset, res.FilledPrice, sig.Amount)
 	} else {
-		log.Printf("❌ %s REJECTED | Asset: %s | Reason: %s", sig.Action, sig.Asset, res.ErrorMsg)
+		log.Printf("%s REJECTED | Asset: %s | Reason: %s", sig.Action, sig.Asset, res.ErrorMsg)
 	}
 }

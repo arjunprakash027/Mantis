@@ -69,7 +69,7 @@ func StartDiscoveryStream(ch chan<- []byte) error {
 			}
 
 			if len(allMarkets) > 0 {
-				fmt.Printf("🔍 Discovery: Found %d active markets. Pushing to Redis...\n", len(allMarkets))
+				fmt.Printf("Discovery: Found %d active markets. Pushing to Redis...\n", len(allMarkets))
 				if data, err := json.Marshal(allMarkets); err == nil {
 					ch <- data
 				}

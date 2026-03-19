@@ -20,16 +20,16 @@ func TestFullSystemEndToEnd(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, rdb)
-	t.Log("🐝 System Initialized with Sandbox Redis")
+	t.Log("System Initialized with Sandbox Redis")
 
 	slug := "will-trump-pardon-ghislaine-maxwell"
-	t.Logf("🚀 Connecting to real-world market: %s", slug)
+	t.Logf("Connecting to real-world market: %s", slug)
 
 	tokens, eventTitle, err := market.GetTokens(slug)
 	if err != nil {
 		t.Fatalf("LookUp Error: %v", err)
 	}
-	t.Logf("✅ Discovered Market: %s", eventTitle)
+	t.Logf("Discovered Market: %s", eventTitle)
 
 	assetIds := make([]string, len(tokens))
 	for i, t := range tokens {
@@ -52,7 +52,7 @@ func TestFullSystemEndToEnd(t *testing.T) {
 		select {
 		case <-ctx.Done():
 			if !foundData {
-				t.Fatal("❌ Timeout: Did not receive any live prices from Polymarket after 20s")
+				t.Fatal("Timeout: Did not receive any live prices from Polymarket after 20s")
 			}
 			return
 		case <-ticker.C:
@@ -61,7 +61,7 @@ func TestFullSystemEndToEnd(t *testing.T) {
 			engine.mu.RUnlock()
 
 			if count > 0 {
-				t.Logf("📈 Success: Engine is receiving live data for %d assets!", count)
+				t.Logf("Success: Engine is receiving live data for %d assets!", count)
 				foundData = true
 				return
 			}

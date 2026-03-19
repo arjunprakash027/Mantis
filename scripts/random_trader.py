@@ -8,7 +8,7 @@ r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
 def random_trader(token_id):
     """Simulates a basic trader that places random small BUY/SELL orders."""
-    print(f"🎲 Random Trader started for token {token_id}")
+    print(f"Random Trader started for token {token_id}")
     
     actions = ["BUY", "SELL"]
 
@@ -25,7 +25,7 @@ def random_trader(token_id):
             }
             
             r.xadd("signals:inbound", {"data": json.dumps(signal)})
-            print(f"🚀 Placed {action} for {amount} units")
+            print(f"Placed {action} for {amount} units")
             
             time.sleep(random.randint(5, 15))
             

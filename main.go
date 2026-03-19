@@ -27,13 +27,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Println("🐝 Mantis Data Engine Starting...")
+	fmt.Println("Mantis Data Engine Starting...")
 
 	marketEngine := streamer.NewEngine(ctx, rdb)
 
 	// 3. Start Orderbook Pipelines
 	if cfg.Pipelines.Orderbook.Enabled {
-		fmt.Printf("🚀 Starting Orderbook Pipelines for %d markets...\n", len(cfg.Pipelines.Orderbook.Markets))
+		fmt.Printf("Starting Orderbook Pipelines for %d markets...\n", len(cfg.Pipelines.Orderbook.Markets))
 		for _, slug := range cfg.Pipelines.Orderbook.Markets {
 			go startOrderbookForSlug(marketEngine, slug)
 		}
@@ -41,7 +41,7 @@ func main() {
 
 	// 4. Start Discovery Pipeline
 	if cfg.Pipelines.Discovery.Enabled {
-		fmt.Printf("🚀 Starting Discovery Pipeline for every %d minutes...\n", cfg.Pipelines.Discovery.IntervalMinutes)
+		fmt.Printf("Starting Discovery Pipeline for every %d minutes...\n", cfg.Pipelines.Discovery.IntervalMinutes)
 		discoveryChan := make(chan []byte)
 		if err := market.StartDiscoveryStream(discoveryChan); err != nil {
 			log.Printf("Discovery Error: %v", err)
@@ -53,7 +53,7 @@ func main() {
 	exec := executor.NewExecutor(ctx, rdb, marketEngine)
 	go exec.Start()
 
-	fmt.Println("✅ Pipelines & Executor active. Press Ctrl+C to stop.")
+	fmt.Println("Pipelines & Executor active. Press Ctrl+C to stop.")
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -89,7 +89,7 @@ func startOrderbookForSlug(engine *streamer.Engine, slug string) {
 		return
 	}
 
-	fmt.Printf("✅ Streaming %s (%d tokens)\n", eventTitle, len(tokens))
+	fmt.Printf("Streaming %s (%d tokens)\n", eventTitle, len(tokens))
 
 	engine.ProcessStream("orderbook", msgChan)
 }
