@@ -20,11 +20,16 @@ def stream_orderbook(token_id):
                     for msg_id, data in messages:
                         raw_payload = data['data']
                         payload = json.loads(raw_payload)
+                        try:
+                            bids = payload['bids']
+                            asks = payload['asks']
+                        except KeyError:
+                            print(payload)
+                            continue
+                        bids.sort(key=lambda x: float(x['price']), reverse=True)
+                        asks.sort(key=lambda x: float(x['price']))
                         
-                        bid = payload.get('best_bid', 'N/A')
-                        ask = payload.get('best_ask', 'N/A')
-                        
-                        print(f"[{time.strftime('%H:%M:%S')}] Bid: {bid} | Ask: {ask}")
+                        print(f"Best Bid: {bids[0]['price']} | Best Ask: {asks[0]['price']}")
                         last_id = msg_id
     except KeyboardInterrupt:
         print("\nStopping...")
