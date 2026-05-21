@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -68,4 +69,53 @@ func TestFullSystemEndToEnd(t *testing.T) {
 			t.Log("... waiting for network packets ...")
 		}
 	}
+}
+
+func BenchmarkUpdateCacheSingle(b *testing.B) {
+	s, _ := miniredis.Run()
+	defer s.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	engine := NewEngine(ctx, rdb)
+	
+	rawMsg := []byte(`[{"asset_id":"Asset_123","bids":[{"price":"0.48","size":"100"}],"asks":[{"price":"0.50","size":"100"}]}]`)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.updateCache(rawMsg)
+	}
+}
+
+func BenchmarkUpdateCacheMultiple(b *testing.B) {
+	s, _ := miniredis.Run()
+	defer s.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	engine := NewEngine(ctx, rdb)
+
+	numAssests := 100
+	var msgPool [][]byte
+
+	for i := 0; i < numAssests; i++ {
+		assetID := fmt.Sprintf("Asset_%d", i)
+		msg := fmt.Sprintf(`[{"asset_id":"%s","bids":[{"price":"0.48","size":"100"}],"asks":[{"price":"0.50","size":"100"}]}]`, assetID)
+		msgPool = append(msgPool, []byte(msg))
+	}
+
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		idx := 0
+		for pb.Next() {
+			engine.updateCache(msgPool[idx%numAssests]) //cycling throuhg pool of 100 messages again and again
+			idx ++
+		}
+	})
+	
 }
