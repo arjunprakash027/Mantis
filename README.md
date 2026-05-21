@@ -89,6 +89,21 @@ Mantis automatically maps market slugs to the necessary technical IDs.
 - **Stale Guard**: If a price hasn't been updated in **60 seconds**, the executor will reject the trade to prevent "slippage" against dead data.
 - **Atomic Fills**: Using Lua scripts ensures that your balance update and trade logging happen as a single atomic unit—no partial fills or missed logs.
 
+## Benchmarking
+
+Mantis is designed for high-frequency low-latency updates. It includes built-in benchmarking for the core hot-paths (like the `updateCache` streaming JSON parser and mutex map operations). 
+
+You can run the concurrency benchmarks to test the limits of your machine's CPU and memory allocation under highly-contended multi-threaded scenarios:
+
+```bash
+cd streamer
+go test -bench=. -benchmem
+```
+
+The benchmarks cover:
+- **`BenchmarkUpdateCacheSingle`**: Measures raw JSON parsing and lock acquisition for single updates.
+- **`BenchmarkUpdateCacheMultiple`**: Uses `b.RunParallel` to simulate extreme concurrent WebSocket load across multiple processor cores, validating the performance of the engine's `sync.RWMutex` optimizations and lock-free string parsing.
+
 ## Data Schema
 
 ### 1. Global Discovery (Stream)
