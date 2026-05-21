@@ -119,3 +119,33 @@ func BenchmarkUpdateCacheMultiple(b *testing.B) {
 	})
 	
 }
+
+func BenchmarkGetPrice(b *testing.B) {
+	s, _ := miniredis.Run()
+	defer s.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	engine := NewEngine(context.Background(), rdb)
+	
+	rawMsg := []byte(`[{"asset_id":"Asset_123","bids":[{"price":"0.48","size":"100"}],"asks":[{"price":"0.50","size":"100"}]}]`)
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for {
+			select {
+			case <- ctx.Done():
+				return
+			default:
+				engine.updateCache(rawMsg)
+			}
+		}
+	}()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = engine.GetPrice("Asset_123")
+		}
+	})
+}

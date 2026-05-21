@@ -84,7 +84,6 @@ func (e *Engine) RegisterMetadata(slug string, tokens []market.Token) error {
 	return err
 }
 
-// Benchmark this 
 func (e *Engine) updateCache(rawMsg []byte) {
 	if len(rawMsg) == 0 {
 		return
