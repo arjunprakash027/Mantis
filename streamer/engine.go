@@ -102,8 +102,16 @@ func (e *Engine) updateCache(rawMsg []byte) {
 		}
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	type UpdatedState struct {
+		assetID string
+		newBid float64
+		newAsk float64
+		bidUpdated bool
+		askUpdated bool
+	}
+
+	now := time.Now().Unix()
+	updateList := make([]UpdatedState, 0, len(updates))
 
 	for i := range updates {
 		u := &updates[i]
@@ -111,28 +119,49 @@ func (e *Engine) updateCache(rawMsg []byte) {
 			continue
 		}
 
-		state := e.prices[u.AssetID]
-		updated := false
+		bidUpdated := false
+		askUpdated := false
+		var newBid, newAsk float64
 
 		if n := len(u.Bids); n > 0 {
 			if price, err := strconv.ParseFloat(u.Bids[n-1].Price, 64); err == nil {
-				state.BestBid = price
-				updated = true
+				newBid = price
+				bidUpdated = true
 			}
 		}
 
 		if n := len(u.Asks); n > 0 {
 			if price, err := strconv.ParseFloat(u.Asks[n-1].Price, 64); err == nil {
-				state.BestAsk = price
-				updated = true
+				newAsk = price
+				askUpdated = true
 			}
 		}
 
-		if updated {
-			state.LastUpdated = time.Now().Unix()
-			e.prices[u.AssetID] = state
+		if bidUpdated || askUpdated {
+			updateList = append(updateList, UpdatedState{
+				assetID:    u.AssetID,
+				newBid:     newBid,
+				newAsk:     newAsk,
+				bidUpdated: bidUpdated,
+				askUpdated: askUpdated,
+        	})
 		}
 	}
+
+	e.mu.Lock()
+	for _, u := range updateList {
+		state := e.prices[u.assetID]
+		if u.bidUpdated {
+			state.BestBid = u.newBid
+		}
+		if u.askUpdated {
+			state.BestAsk = u.newAsk
+		}
+		state.LastUpdated = now
+		e.prices[u.assetID] = state
+	}
+	e.mu.Unlock()
+	
 }
 
 func (e *Engine) pushToRedis(namespace string, rawMsg []byte) {
