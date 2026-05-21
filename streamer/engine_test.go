@@ -149,3 +149,30 @@ func BenchmarkGetPrice(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkPushToRedis(b *testing.B) {
+	s, _ := miniredis.Run()
+	defer s.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	engine := NewEngine(context.Background(), rdb)
+	
+	rawMsg := []byte(`[{
+		"asset_id": "Asset_123",
+		"bids": [
+			{"price":"0.48","size":"100"},{"price":"0.47","size":"200"},{"price":"0.46","size":"500"},
+			{"price":"0.45","size":"100"},{"price":"0.44","size":"200"},{"price":"0.43","size":"500"},
+			{"price":"0.42","size":"100"},{"price":"0.41","size":"200"},{"price":"0.40","size":"500"}
+		],
+		"asks": [
+			{"price":"0.50","size":"100"},{"price":"0.51","size":"200"},{"price":"0.52","size":"500"},
+			{"price":"0.53","size":"100"},{"price":"0.54","size":"200"},{"price":"0.55","size":"500"},
+			{"price":"0.56","size":"100"},{"price":"0.57","size":"200"},{"price":"0.58","size":"500"}
+		]
+	}]`)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.pushToRedis("orderbook", rawMsg)
+	}
+}

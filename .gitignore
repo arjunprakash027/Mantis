@@ -41,3 +41,5 @@ mantis
 .venv/
 
 .DS_STORE/
+
+cpu.out
