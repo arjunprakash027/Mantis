@@ -1,4 +1,6 @@
-# Mantis
+# Mantis (v0.0.11)
+
+> **Note:** To view the latest updates and release notes, please see the [CHANGELOG.md](CHANGELOG.md) file.
 
 Mantis is a high-performance market data collector and paper trading engine designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global API/WebSocket infrastructure and local high-frequency trading systems by piping live data and simulated order execution into a low-latency Redis backend.
 
