@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"io"
+	"log"
 	"os"
 	"testing"
 	"time"
@@ -131,4 +133,45 @@ func TestAssetNotStreamed(t *testing.T) {
 	if balance != 100.00 {
 		t.Errorf("Trade processed for unknown asset")
 	}
+}
+
+func BenchmarkProcessSignal(b *testing.B) {
+	log.SetOutput(io.Discard)
+	rdb.FlushAll(ctx)
+	engine := streamer.NewEngine(ctx, rdb)
+	exec := NewExecutor(ctx, rdb, engine)
+
+	priceChan := make(chan []byte, 1)
+	priceChan <- []byte(`{"asset_id":"Asset_123","bids":[{"price":"0.48"}],"asks":[{"price":"0.50"}]}`)
+	close(priceChan)
+
+	go engine.ProcessStream("orderbook", priceChan)
+
+	rdb.HSet(ctx, "portfolio:balance", "USD", 1e18)
+	rdb.HSet(ctx, "token:meta:Asset_123", map[string]interface{}{
+		"market":  "Bitcoin Moon",
+		"outcome": "Yes",
+	})
+
+	rdb.XGroupCreateMkStream(ctx, "signals:inbound", "mantis_executors", "$")
+	rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "signals:inbound",
+		Values: map[string]interface{}{
+			"data": `{"action":"BUY", "asset":"Asset_123", "amount": 10.0}`,
+		},
+	})
+
+	streams, _ := rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    "mantis_executors",
+		Consumer: "test_worker",
+		Streams:  []string{"signals:inbound", ">"},
+		Count:    1,
+	}).Result()
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		exec.processSignal(streams[0].Messages[0])
+	}
+
 }
