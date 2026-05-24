@@ -2,38 +2,76 @@
 
 > **Note:** To view the latest updates and release notes, please see the [CHANGELOG.md](CHANGELOG.md) file.
 
-Mantis is a high-performance market data collector and paper trading engine designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global API/WebSocket infrastructure and local high-frequency trading systems by piping live data and simulated order execution into an extensible, high-performance backend provider.
+**Mantis** is an ultra-low latency, high-performance market data ingestion and atomic paper-trading engine designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global Central Limit Order Book (CLOB) infrastructure and local high-frequency trading (HFT) models. 
 
-## Architecture
+By employing advanced lock-free optimization patterns, parallel stream pipelines, and a fully decoupled interface-driven architecture, Mantis is capable of processing thousands of ticks per second, enabling real-time quantitative modeling and risk-free strategy execution.
 
-Mantis is built in Go for speed and safety, utilizing a modular "One-Channel-Per-Stream" design with a **completely decoupled backend provider layer**. All data streaming and transactional execution operations are abstracted behind clean Go interfaces (`pkg/backend`). 
+---
 
-This permits pluggable support for multiple transports and databases. While it includes a robust Redis implementation (`RedisProvider`) out of the box, developers can easily swap Redis with alternatives like NATS, Apache Kafka, SQL databases, or raw **In-Memory** data structures for zero-latency execution.
+## Architecture & Design Philosophy
 
-The engine runs multiple concurrent data pipelines:
+Mantis is written in Go and utilizes a highly modular **"One-Channel-Per-Stream"** design. The system is split into independent subsystems that communicate entirely through abstract transport interfaces, isolating the complex domain logic from infrastructure details.
 
-1.  **Global Discovery Engine**: Periodically scans the entire exchange (pagination over ~28k+ active markets) to find the newest and most liquid opportunities.
-2.  **Smart Metadata Registry**: Maps market slugs to underlying CLOB asset IDs and outcome names, allowing bots to perform discovery without hitting Polymarket APIs.
-3.  **High-Speed Ingestion**: Maintains persistent WebSocket connections to the Polymarket CLOB for real-time L2 orderbook updates with automated heartbeats and fail-safe logging.
-4.  **Atomic Paper Executor**: A high-fidelity trading simulator that executes orders against **live** orderbook prices, fully decoupled from database-specific streams and transactions.
+### 1. Transport-Agnostic Pluggable Backends
+The core of Mantis's extensibility lies in the `pkg/backend` module. The application's core engines (`streamer.Engine` and `executor.Executor`) do not depend on any specific database or message broker. 
 
-## Current Progress
+Instead, they rely on two strictly defined interfaces:
+- `StreamerBackend`: For fast caching, state updates, and outbound event streaming.
+- `ExecutorBackend`: For atomic balance validation, signal processing, and trade logging.
 
-- [x] **Full Exchange Discovery**: Automated pagination to fetch and index all active markets.
-- [x] **Real-Time Paper Trading**: Integrated execution engine that tracks balances, fills orders at live BBA (Best Bid/Offer), and maintains an audit log.
-- [x] **YAML-Based Management**: Configure multiple markets and toggle discovery/orderbook pipelines via `config.yaml`.
-- [x] **Safe Execution**: Implementation of strict price caching (no assumptions) and 60-second stale price guards to prevent trading on "zombie" data.
-- [x] **High-Performance Routing**: Sub-millisecond distribution of WebSocket updates into namespaced Redis Streams.
+**What does this mean for you?**
+Mantis ships with a production-grade **RedisProvider** (utilizing atomic Lua scripts and Redis Streams) out of the box. However, because of this pluggable design, developers can seamlessly inject alternative data transports:
+- **NATS JetStream** or **Apache Kafka** for massive scale out.
+- **Relational SQL** for persistent analytics.
+- **In-Memory (NoOp) structs** for absolute zero-latency local testing.
+
+### 2. High-Speed Ingestion Engine
+Mantis maintains persistent WebSocket connections to the Polymarket CLOB. The ingestion pipeline has been heavily optimized to eliminate thread contention:
+- **Zero-Blocking Parsing**: Heavy JSON deserialization and string-to-float conversions (`strconv.ParseFloat`) are executed strictly outside of state write-locks.
+- **RWMutex Optimization**: State commits hold `sync.RWMutex` locks for mere nanoseconds, ensuring the Execution Engine is never blocked from reading the `best_bid`/`best_ask` during periods of extreme market volatility.
+
+### 3. Atomic Paper Executor
+A high-fidelity trading simulator that fully replicates real-world constraints.
+- **No Assumptions**: Orders are evaluated against the *exact* microsecond state of the local pricing cache.
+- **Stale Guards**: Trades are immediately rejected if the underlying pricing data hasn't seen a tick in the last **60 seconds**, protecting against "zombie" markets.
+- **Atomicity**: Trade finality and balance mutations happen synchronously. In the Redis implementation, this is achieved via pre-compiled `//go:embed` Lua scripts executed within single server ticks.
+
+### 4. Smart Metadata Registry
+A background discovery service systematically paginates through Polymarket's 28k+ active markets. It builds a localized, highly queryable mapping of Human-Readable Market Slugs to raw CLOB Asset IDs, allowing your downstream models to operate cleanly without hitting third-party REST APIs.
+
+---
+
+## Performance & Benchmarking
+
+Mantis is designed for quantitative scale. To ensure the engine never becomes the bottleneck, it includes a rigorous built-in benchmarking suite that segregates **Micro** (CPU path efficiency) from **Macro** (Database I/O) performance.
+
+You can stress-test the application on your own hardware:
+```bash
+# Benchmark Ingestion (JSON Parsing & Lock Contention)
+cd streamer
+go test -bench=. -benchmem
+
+# Benchmark Transaction Executor (TPS limits)
+cd ../executor
+go test -bench=. -benchmem
+```
+
+### The Power of "NoOp" (Zero-I/O) Benchmarking
+Because of the pluggable interface architecture, our benchmark suite includes **NoOp (No-Operation) Providers**. These mock backends instantly discard database writes, allowing the benchmarks to completely bypass network latency and Redis I/O. 
+
+By running the NoOp benchmarks (`BenchmarkProcessSignal_NoOp`), developers can isolate and measure the **pure raw speed of Go's CPU execution** (payload unmarshaling, context switching, state evaluation) without external noise.
+
+---
 
 ## Getting Started
 
 ### Prerequisites
-- Go 1.21+
-- Redis (running locally on port 6379)
-- Python 3.x (for the sample order script)
+- **Go 1.21+**
+- **Redis** (running locally on port `6379`)
+- **Python 3.x** (for interacting via included scripts)
 
 ### Setup & Configuration
-Mantis is managed via `config.yaml`. Add the market slugs you want to track to the `orderbook.markets` list.
+Mantis relies on a declarative `config.yaml`. Define the Polymarket slugs you want to track under the `orderbook` configuration.
 
 ```yaml
 pipelines:
@@ -47,154 +85,65 @@ pipelines:
 ```
 
 ### Running the Engine
+
 ```bash
 # 1. Start your local Redis
 brew services start redis
 
-# 2. Reset Database (Wipe everything to start fresh)
+# 2. Reset the environment (Wipe DB to start fresh)
 redis-cli FLUSHALL
 
-# 3. Fund your paper trading account (Default is $0)
+# 3. Fund your simulated portfolio (e.g., $1000)
 redis-cli HSET portfolio:balance USD 1000
 
-# 4. Start Mantis
+# 4. Boot the Mantis Engine
 go run main.go
 ```
 
-## Paper Trading Guide
+---
 
-Mantis includes an Atomic Execution Engine. When you send a trade signal, it checks the **local price cache** (populated by the live WebSocket) and executes the trade only if the data is fresh and reliable.
+## Interfacing with Mantis
 
-### 1. Placing an Order
-Use the included `order.py` script to send signals to the engine.
+Mantis acts as the spine of your trading stack. Your proprietary quantitative models and bots simply read the streams and publish signals.
 
-```bash
-# Usage: python3 order.py <BUY/SELL> <TOKEN_ID> <AMOUNT>
-python3 order.py BUY 538482956... 10
-```
+### Data Schema (Redis Provider)
+- **Global Discovery Stream**: `XREAD BLOCK 0 STREAMS discovery:stream:all $`
+- **Live Orderbook Stream**: `XREAD BLOCK 0 STREAMS orderbook:stream:<asset_id> $`
+- **Inbound Trade Signals**: Publish to `signals:inbound`
+  - *Format*: `{"action": "BUY", "asset": "ID", "amount": 1.0}`
+- **Outbound Fill Results**: `signals:outbound`
 
-### 2. Managing your Account (Redis)
-All portfolio data is stored in the `portfolio:balance` hash.
-
-*   **View Balance & Positions**: `redis-cli HGETALL portfolio:balance`
-*   **Add Funds**: `redis-cli HINCRBYFLOAT portfolio:balance USD 500`
-*   **Wipe Balance**: `redis-cli DEL portfolio:balance`
-*   **View Trade History**: `redis-cli XRANGE trade:log - +`
-*   **Wipe History**: `redis-cli DEL trade:log`
-
-### 3. Metadata Discovery (Redis)
-Mantis automatically maps market slugs to the necessary technical IDs.
-
-*   **List All Tracked Markets**: `redis-cli KEYS slug:assets:*`
-*   **Find Token IDs for a Market**: `redis-cli SMEMBERS slug:assets:<slug>`
-*   **View Token Details (Outcome/Market Name)**: `redis-cli HGETALL token:meta:<token_id>`
-*   **Check Stream Volume**: `redis-cli XLEN orderbook:stream:<asset_id>`
-
-### 4. Execution Rules
-- **No Assumptions**: Orders are only filled if the engine has received an explicit `best_bid` or `best_ask` from the exchange.
-- **Stale Guard**: If a price hasn't been updated in **60 seconds**, the executor will reject the trade to prevent "slippage" against dead data.
-- **Atomic Fills**: Using Lua scripts ensures that your balance update and trade logging happen as a single atomic unit—no partial fills or missed logs.
-
-## Benchmarking
-
-Mantis is designed for high-frequency, low-latency execution. It includes a comprehensive, built-in benchmarking suite that segregates **Micro (instruction & CPU path efficiency)** and **Macro (system & database capacity boundaries)** performance.
-
-You can run the full benchmarking suite across the modules using:
+### Python SDK & Scripts
+We provide sample Python scripts in the `scripts/` directory to demonstrate integration.
 
 ```bash
-# Benchmark the Streamer (JSON Ingestion & Cache Locks)
-cd streamer
-go test -bench=. -benchmem
+cd scripts
+pip install -r requirements.txt
 
-# Benchmark the Executor (Transaction TPS & Database I/O)
-cd ../executor
-go test -bench=. -benchmem
+# View Tracked Markets & Portfolio Balance
+python3 get_redis_information.py
+
+# Listen to the Live BBO Stream for an Asset
+python3 get_order_book.py <TOKEN_ID>
+
+# Run a sample Random Noise Trader
+python3 random_trader.py
 ```
 
-### 1. Ingestion Engine Benchmarks (`streamer/engine_test.go`)
-* **`BenchmarkUpdateCacheSingle`**: Measures single-threaded JSON parsing, string-to-float conversion, and local state cache updates.
-* **`BenchmarkUpdateCacheMultiple`**: Uses `b.RunParallel` to simulate extreme concurrent order book updates across multiple CPU cores, testing the scaling limits of `sync.RWMutex` and state map access.
-* **`BenchmarkGetPrice`**: Measures downstream read latency on the active price cache while background goroutines are heavily writing new stream ticks.
-* **`BenchmarkPushToRedis`**: Measures dynamic routing key generation, unmarshaling parsing speed, and database append writes (`XAdd`).
-* **`BenchmarkProcessStreamE2E`**: Measures the absolute end-to-end parallel ingestion capacity, encompassing Go channel scheduling, goroutine context switching, parsing, and stream logging.
+---
 
-### 2. Transaction Executor Benchmarks (`executor/executor_test.go`)
-* **`BenchmarkProcessSignal`**: Measures the complete paper execution transaction rate (Trades Per Second). This evaluates raw performance across unmarshalling signals, validating price freshness, running atomic database check-and-increment operations (via embedded Redis Lua scripts), and publishing trade log events.
-* **`BenchmarkExecutorHappyPath`**: Measures transaction processing times for successful orders under high-balance conditions.
-* **`BenchmarkExecutorRejectedStalePrice`**: Measures the latency of fast-path rejections (such as stale prices or insufficient balances) before any expensive database writes occur.
+## Automated Deployment
 
-## Data Schema
+Mantis includes a streamlined script (`deploy.sh`) to cross-compile for Linux (AMD64) and push the binary to remote VPS environments via SCP.
 
-### 1. Global Discovery (Stream)
-`XREAD BLOCK 0 STREAMS discovery:stream:all $`
-- Contains metadata for all 28k+ active markets.
-
-### 2. Live Orderbook (Stream)
-`XREAD BLOCK 0 STREAMS orderbook:stream:<asset_id> $`
-- Namespaced L2 updates for markets defined in your `config.yaml`.
-
-### 3. Execution Signals (Streams)
-- **Inbound Signals**: `signals:inbound` (Format: `{"action": "BUY", "asset": "ID", "amount": 1.0}`)
-- **Outbound Results**: `signals:outbound` (Contains fill price, timestamp, and any error messages).
-
-## Deployment
-
-Mantis includes an automated deployment script (`deploy.sh`) to cross-compile and ship the binary to your remote VPS.
-
-### 1. Prerequisite: SSH Alias
-To use the script seamlessy, set up an SSH alias for your server. Open or create `~/.ssh/config` on your Mac and add:
-
-```text
-Host server-alias
-    HostName <YOUR_SERVER_IP>
-    User root
-    IdentityFile ~/.ssh/id_ed25519
-```
-
-*For more details on SSH config, see: [Speed up SSH by using Aliases](https://www.cyberciti.biz/faq/create-ssh-config-file-on-linux-unix/)*
-
-### 2. Passwordless Login (Recommended)
-Set up SSH keys so you don't have to type your password every time you deploy:
+1. Create an SSH alias (`server-alias`) in your `~/.ssh/config`.
+2. Configure passwordless login (`ssh-copy-id server-alias`).
+3. Run the deployer:
 
 ```bash
-# Copy your local key to the server
-ssh-copy-id server-alias
-```
-
-### 3. Running Deployment
-The script handles Linux (AMD64) cross-compilation and file transfer via SCP.
-
-```bash
-# Make the script executable
 chmod +x deploy.sh
-
-# Build & Deploy
 ./deploy.sh
 ```
 
 ---
-
-## Examples (Python)
-
-To help you get started with building bots on top of Mantis, check out the `scripts/` directory.
-
-### 1. Account Info (`scripts/get_redis_information.py`)
-A comprehensive script that lists all tracked markets, their token IDs (with human names), and your current portfolio balance.
-
-### 2. Orderbook Streamer (`scripts/get_order_book.py`)
-A simple listener that connects to Redis and prints live Best Bid/Offer (BBO) updates as Mantis pushes them. Handles Polymarket batching and sorting automatically.
-
-### 3. Random Trader (`scripts/random_trader.py`)
-A simulated strategy that places random small BUY/SELL orders every few seconds to test your executor and portfolio logic.
-
-**How to run scripts:**
-```bash
-cd scripts
-pip install -r requirements.txt
-python3 get_redis_information.py
-python3 get_order_book.py <TOKEN_ID>
-```
-
----
-
-*Note: The trading strategy implementations and execution modules remain internal and private (Simulated context).*
+*Built for extreme latency conditions. Safe for simulations. The core strategy implementations are entirely abstracted for your own proprietary integration.*
