@@ -1,17 +1,21 @@
-# Mantis (v0.0.11)
+# Mantis (v0.0.2)
 
 > **Note:** To view the latest updates and release notes, please see the [CHANGELOG.md](CHANGELOG.md) file.
 
-Mantis is a high-performance market data collector and paper trading engine designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global API/WebSocket infrastructure and local high-frequency trading systems by piping live data and simulated order execution into a low-latency Redis backend.
+Mantis is a high-performance market data collector and paper trading engine designed for [Polymarket](https://polymarket.com/). It bridges the gap between Polymarket's global API/WebSocket infrastructure and local high-frequency trading systems by piping live data and simulated order execution into an extensible, high-performance backend provider.
 
 ## Architecture
 
-Mantis is built in Go for speed and safety, utilizing a modular "One-Channel-Per-Stream" architecture. It runs multiple concurrent data pipelines:
+Mantis is built in Go for speed and safety, utilizing a modular "One-Channel-Per-Stream" design with a **completely decoupled backend provider layer**. All data streaming and transactional execution operations are abstracted behind clean Go interfaces (`pkg/backend`). 
+
+This permits pluggable support for multiple transports and databases. While it includes a robust Redis implementation (`RedisProvider`) out of the box, developers can easily swap Redis with alternatives like NATS, Apache Kafka, SQL databases, or raw **In-Memory** data structures for zero-latency execution.
+
+The engine runs multiple concurrent data pipelines:
 
 1.  **Global Discovery Engine**: Periodically scans the entire exchange (pagination over ~28k+ active markets) to find the newest and most liquid opportunities.
 2.  **Smart Metadata Registry**: Maps market slugs to underlying CLOB asset IDs and outcome names, allowing bots to perform discovery without hitting Polymarket APIs.
 3.  **High-Speed Ingestion**: Maintains persistent WebSocket connections to the Polymarket CLOB for real-time L2 orderbook updates with automated heartbeats and fail-safe logging.
-4.  **Atomic Paper Executor**: A high-fidelity trading simulator that executes orders against **live** orderbook prices using atomic Redis Lua scripts.
+4.  **Atomic Paper Executor**: A high-fidelity trading simulator that executes orders against **live** orderbook prices, fully decoupled from database-specific streams and transactions.
 
 ## Current Progress
 
@@ -93,18 +97,31 @@ Mantis automatically maps market slugs to the necessary technical IDs.
 
 ## Benchmarking
 
-Mantis is designed for high-frequency low-latency updates. It includes built-in benchmarking for the core hot-paths (like the `updateCache` streaming JSON parser and mutex map operations). 
+Mantis is designed for high-frequency, low-latency execution. It includes a comprehensive, built-in benchmarking suite that segregates **Micro (instruction & CPU path efficiency)** and **Macro (system & database capacity boundaries)** performance.
 
-You can run the concurrency benchmarks to test the limits of your machine's CPU and memory allocation under highly-contended multi-threaded scenarios:
+You can run the full benchmarking suite across the modules using:
 
 ```bash
+# Benchmark the Streamer (JSON Ingestion & Cache Locks)
 cd streamer
+go test -bench=. -benchmem
+
+# Benchmark the Executor (Transaction TPS & Database I/O)
+cd ../executor
 go test -bench=. -benchmem
 ```
 
-The benchmarks cover:
-- **`BenchmarkUpdateCacheSingle`**: Measures raw JSON parsing and lock acquisition for single updates.
-- **`BenchmarkUpdateCacheMultiple`**: Uses `b.RunParallel` to simulate extreme concurrent WebSocket load across multiple processor cores, validating the performance of the engine's `sync.RWMutex` optimizations and lock-free string parsing.
+### 1. Ingestion Engine Benchmarks (`streamer/engine_test.go`)
+* **`BenchmarkUpdateCacheSingle`**: Measures single-threaded JSON parsing, string-to-float conversion, and local state cache updates.
+* **`BenchmarkUpdateCacheMultiple`**: Uses `b.RunParallel` to simulate extreme concurrent order book updates across multiple CPU cores, testing the scaling limits of `sync.RWMutex` and state map access.
+* **`BenchmarkGetPrice`**: Measures downstream read latency on the active price cache while background goroutines are heavily writing new stream ticks.
+* **`BenchmarkPushToRedis`**: Measures dynamic routing key generation, unmarshaling parsing speed, and database append writes (`XAdd`).
+* **`BenchmarkProcessStreamE2E`**: Measures the absolute end-to-end parallel ingestion capacity, encompassing Go channel scheduling, goroutine context switching, parsing, and stream logging.
+
+### 2. Transaction Executor Benchmarks (`executor/executor_test.go`)
+* **`BenchmarkProcessSignal`**: Measures the complete paper execution transaction rate (Trades Per Second). This evaluates raw performance across unmarshalling signals, validating price freshness, running atomic database check-and-increment operations (via embedded Redis Lua scripts), and publishing trade log events.
+* **`BenchmarkExecutorHappyPath`**: Measures transaction processing times for successful orders under high-balance conditions.
+* **`BenchmarkExecutorRejectedStalePrice`**: Measures the latency of fast-path rejections (such as stale prices or insufficient balances) before any expensive database writes occur.
 
 ## Data Schema
 

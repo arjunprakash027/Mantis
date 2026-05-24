@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/arjunprakash027/Mantis/pkg/backend"
 	"github.com/arjunprakash027/Mantis/streamer"
 	"github.com/redis/go-redis/v9"
 )
@@ -32,8 +33,9 @@ func TestMain(m *testing.M) {
 
 func TestAtomicTrade(t *testing.T) {
 	rdb.FlushAll(ctx)
-	engine := streamer.NewEngine(ctx, rdb)
-	exec := NewExecutor(ctx, rdb, engine)
+	provider := backend.NewRedisProvider(rdb)
+	engine := streamer.NewEngine(ctx, provider)
+	exec := NewExecutor(ctx, provider, engine)
 
 	priceChan := make(chan []byte, 1)
 	go engine.ProcessStream("orderbook", priceChan)
@@ -62,7 +64,8 @@ func TestAtomicTrade(t *testing.T) {
 		Count:    1,
 	}).Result()
 
-	exec.processSignal(streams[0].Messages[0])
+	msg := streams[0].Messages[0]
+	exec.processSignalPayload(msg.ID, []byte(msg.Values["data"].(string)))
 
 	balance, _ := rdb.HGet(ctx, "portfolio:balance", "USD").Float64()
 	if balance != 5.00 {
@@ -72,8 +75,9 @@ func TestAtomicTrade(t *testing.T) {
 
 func TestInsufficientFunds(t *testing.T) {
 	rdb.FlushAll(ctx)
-	engine := streamer.NewEngine(ctx, rdb)
-	exec := NewExecutor(ctx, rdb, engine)
+	provider := backend.NewRedisProvider(rdb)
+	engine := streamer.NewEngine(ctx, provider)
+	exec := NewExecutor(ctx, provider, engine)
 
 	priceChan := make(chan []byte, 1)
 	go engine.ProcessStream("orderbook", priceChan)
@@ -97,7 +101,8 @@ func TestInsufficientFunds(t *testing.T) {
 		Count:    1,
 	}).Result()
 
-	exec.processSignal(streams[0].Messages[0])
+	msg := streams[0].Messages[0]
+	exec.processSignalPayload(msg.ID, []byte(msg.Values["data"].(string)))
 
 	balance, _ := rdb.HGet(ctx, "portfolio:balance", "USD").Float64()
 	if balance != 1.00 {
@@ -107,8 +112,9 @@ func TestInsufficientFunds(t *testing.T) {
 
 func TestAssetNotStreamed(t *testing.T) {
 	rdb.FlushAll(ctx)
-	engine := streamer.NewEngine(ctx, rdb)
-	exec := NewExecutor(ctx, rdb, engine)
+	provider := backend.NewRedisProvider(rdb)
+	engine := streamer.NewEngine(ctx, provider)
+	exec := NewExecutor(ctx, provider, engine)
 
 	rdb.HSet(ctx, "portfolio:balance", "USD", 100.00)
 
@@ -127,7 +133,8 @@ func TestAssetNotStreamed(t *testing.T) {
 		Count:    1,
 	}).Result()
 
-	exec.processSignal(streams[0].Messages[0])
+	msg := streams[0].Messages[0]
+	exec.processSignalPayload(msg.ID, []byte(msg.Values["data"].(string)))
 
 	balance, _ := rdb.HGet(ctx, "portfolio:balance", "USD").Float64()
 	if balance != 100.00 {
@@ -138,8 +145,9 @@ func TestAssetNotStreamed(t *testing.T) {
 func BenchmarkProcessSignal(b *testing.B) {
 	log.SetOutput(io.Discard)
 	rdb.FlushAll(ctx)
-	engine := streamer.NewEngine(ctx, rdb)
-	exec := NewExecutor(ctx, rdb, engine)
+	provider := backend.NewRedisProvider(rdb)
+	engine := streamer.NewEngine(ctx, provider)
+	exec := NewExecutor(ctx, provider, engine)
 
 	priceChan := make(chan []byte, 1)
 	priceChan <- []byte(`{"asset_id":"Asset_123","bids":[{"price":"0.48"}],"asks":[{"price":"0.50"}]}`)
@@ -171,7 +179,8 @@ func BenchmarkProcessSignal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		exec.processSignal(streams[0].Messages[0])
+		msg := streams[0].Messages[0]
+		exec.processSignalPayload(msg.ID, []byte(msg.Values["data"].(string)))
 	}
 
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/arjunprakash027/Mantis/config"
 	"github.com/arjunprakash027/Mantis/executor"
 	"github.com/arjunprakash027/Mantis/market"
+	"github.com/arjunprakash027/Mantis/pkg/backend"
 	"github.com/arjunprakash027/Mantis/streamer"
 	"github.com/redis/go-redis/v9"
 )
@@ -22,14 +23,15 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 2. Setup Redis
+	// 2. Setup engines
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	fmt.Println("Mantis Data Engine Starting...")
 
-	marketEngine := streamer.NewEngine(ctx, rdb)
+	provider := backend.NewRedisProvider(rdb)
+	marketEngine := streamer.NewEngine(ctx, provider)
 
 	// 3. Start Orderbook Pipelines
 	if cfg.Pipelines.Orderbook.Enabled {
@@ -50,7 +52,7 @@ func main() {
 		}
 	}
 
-	exec := executor.NewExecutor(ctx, rdb, marketEngine)
+	exec := executor.NewExecutor(ctx, provider, marketEngine)
 	go exec.Start()
 
 	fmt.Println("Pipelines & Executor active. Press Ctrl+C to stop.")

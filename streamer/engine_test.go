@@ -8,6 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/arjunprakash027/Mantis/market"
+	"github.com/arjunprakash027/Mantis/pkg/backend"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -20,7 +21,8 @@ func TestFullSystemEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	engine := NewEngine(ctx, rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(ctx, provider)
 	t.Log("System Initialized with Sandbox Redis")
 
 	slug := "will-trump-pardon-ghislaine-maxwell"
@@ -79,7 +81,8 @@ func BenchmarkUpdateCacheSingle(b *testing.B) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	engine := NewEngine(ctx, rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(ctx, provider)
 	
 	rawMsg := []byte(`[{"asset_id":"Asset_123","bids":[{"price":"0.48","size":"100"}],"asks":[{"price":"0.50","size":"100"}]}]`)
 
@@ -97,7 +100,8 @@ func BenchmarkUpdateCacheMultiple(b *testing.B) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	engine := NewEngine(ctx, rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(ctx, provider)
 
 	numAssests := 100
 	var msgPool [][]byte
@@ -125,7 +129,8 @@ func BenchmarkGetPrice(b *testing.B) {
 	defer s.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
 
-	engine := NewEngine(context.Background(), rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(context.Background(), provider)
 	
 	rawMsg := []byte(`[{"asset_id":"Asset_123","bids":[{"price":"0.48","size":"100"}],"asks":[{"price":"0.50","size":"100"}]}]`)
 	
@@ -155,7 +160,8 @@ func BenchmarkPushToRedis(b *testing.B) {
 	defer s.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
 
-	engine := NewEngine(context.Background(), rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(context.Background(), provider)
 	
 	rawMsg := []byte(`[{
 		"asset_id": "Asset_123",
@@ -182,7 +188,8 @@ func BenchmarkProcessStreamE2E(b *testing.B) {
 	defer s.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
 
-	engine := NewEngine(context.Background(), rdb)
+	provider := backend.NewRedisProvider(rdb)
+	engine := NewEngine(context.Background(), provider)
 	
 	rawMsg := []byte(`[{
 		"asset_id": "Asset_123",

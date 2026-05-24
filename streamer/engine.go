@@ -3,14 +3,12 @@ package streamer
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/arjunprakash027/Mantis/market"
-	"github.com/arjunprakash027/Mantis/pkg/redismantis"
-	"github.com/redis/go-redis/v9"
+	"github.com/arjunprakash027/Mantis/pkg/backend"
 )
 
 type MarketState struct {
@@ -20,7 +18,7 @@ type MarketState struct {
 }
 
 type Engine struct {
-	rdb    *redis.Client
+	backend backend.StreamerBackend
 	prices map[string]MarketState
 	mu     sync.RWMutex
 	ctx    context.Context
@@ -38,9 +36,9 @@ type OrderbookUpdate struct {
 	} `json:"asks"`
 }
 
-func NewEngine(ctx context.Context, rdb *redis.Client) *Engine {
+func NewEngine(ctx context.Context, b backend.StreamerBackend) *Engine {
 	return &Engine{
-		rdb:    rdb,
+		backend:    b,
 		prices: make(map[string]MarketState),
 		ctx:    ctx,
 	}
@@ -67,21 +65,7 @@ func (e *Engine) ProcessStream(namespace string, msgChan <-chan []byte) {
 }
 
 func (e *Engine) RegisterMetadata(slug string, tokens []market.Token) error {
-	pipe := e.rdb.Pipeline()
-	slugKey := redismantis.SetSlugAssets(slug)
-
-	for _, t := range tokens {
-		key := redismantis.HashTokenMeta(t.TokenID)
-		pipe.HSet(e.ctx, key, map[string]interface{}{
-			"id":      t.TokenID,
-			"outcome": t.Outcome,
-			"market":  t.Market,
-			"slug":    slug,
-		})
-		pipe.SAdd(e.ctx, slugKey, t.TokenID)
-	}
-	_, err := pipe.Exec(e.ctx)
-	return err
+	return e.backend.RegisterMetadata(e.ctx, slug, tokens)
 }
 
 func (e *Engine) updateCache(rawMsg []byte) {
@@ -193,17 +177,6 @@ func (e *Engine) streamAdd(namespace string, identifier string, data []byte) {
 	if identifier == "" {
 		return
 	}
-
-	streamKey := redismantis.StreamNamespaceDynamic(namespace, identifier)
-
-	err := e.rdb.XAdd(e.ctx, &redis.XAddArgs{
-		Stream: streamKey,
-		MaxLen: 1000,
-		Approx: true,
-		Values: map[string]interface{}{"data": data},
-	}).Err()
-
-	if err != nil {
-		log.Printf("Redis Stream Error [%s]: %v", streamKey, err)
-	}
+	_ = e.backend.PublishStream(e.ctx, namespace, identifier, data)
 }
+

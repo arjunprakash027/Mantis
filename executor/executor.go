@@ -7,9 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/arjunprakash027/Mantis/pkg/redismantis"
 	"github.com/arjunprakash027/Mantis/streamer"
-	"github.com/redis/go-redis/v9"
+	"github.com/arjunprakash027/Mantis/pkg/backend"
 )
 
 type Signal struct {
@@ -29,19 +28,14 @@ type ExecutionResult struct {
 }
 
 type Executor struct {
-	rdb    *redis.Client
+	backend  backend.ExecutorBackend
 	engine *streamer.Engine
 	ctx    context.Context
 }
 
-//go:embed trade.lua
-var tradeLua string
-
-var tradeScript = redis.NewScript(tradeLua)
-
-func NewExecutor(ctx context.Context, rdb *redis.Client, engine *streamer.Engine) *Executor {
+func NewExecutor(ctx context.Context, b backend.ExecutorBackend, engine *streamer.Engine) *Executor {
 	return &Executor{
-		rdb:    rdb,
+		backend:    b,
 		engine: engine,
 		ctx:    ctx,
 	}
@@ -49,44 +43,21 @@ func NewExecutor(ctx context.Context, rdb *redis.Client, engine *streamer.Engine
 
 func (e *Executor) Start() {
 
-	log.Println("Executor Started: Listening on signals:inbound")
-	e.rdb.XGroupCreateMkStream(e.ctx, redismantis.StreamSignalsInbound, redismantis.GroupMantisExecutors, "$")
+	log.Println("Executor Started: Subscribing to inbound signals...")
+	
+	err := e.backend.SubscribeInboundSignals(e.ctx, func(msgID string, payload []byte) {
+		e.processSignalPayload(msgID, payload)
+	})
 
-	for {
-		streams, err := e.rdb.XReadGroup(e.ctx, &redis.XReadGroupArgs{
-			Group:    redismantis.GroupMantisExecutors,
-			Consumer: redismantis.ConsumerWorker1,
-			Streams:  []string{redismantis.StreamSignalsInbound, ">"},
-			Count:    1,
-			Block:    0,
-		}).Result()
-
-		if e.ctx.Err() != nil {
-			return
-		}
-
-		if err != nil {
-			log.Printf("Redis Stream Error [%s]: %v", "signals:inbound", err)
-			continue
-		}
-
-		for _, msg := range streams[0].Messages {
-			e.processSignal(msg)
-			e.rdb.XAck(e.ctx, redismantis.StreamSignalsInbound, redismantis.GroupMantisExecutors, msg.ID)
-		}
+	if err != nil {
+		log.Printf("Signal subscription finished: %v", err)
 	}
 }
 
-func (e *Executor) processSignal(msg redis.XMessage) {
+func (e *Executor) processSignalPayload(msgID string, payload []byte) {
 	var sig Signal
 
-	dataStr, ok := msg.Values["data"].(string)
-	if !ok {
-		log.Printf("Invalid signal format: missing 'data' field")
-		return
-	}
-
-	if err := json.Unmarshal([]byte(dataStr), &sig); err != nil {
+	if err := json.Unmarshal(payload, &sig); err != nil {
 		log.Printf("Invalid JSON: %v", err)
 		return
 	}
@@ -95,11 +66,13 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 
 	if !exists {
 		e.respond(sig, ExecutionResult{Success: false, ErrorMsg: "Asset not streamed"})
+		_ = e.backend.AcknowledgeSignal(e.ctx, msgID)
 		return
 	}
 
 	if time.Now().Unix()-priceState.LastUpdated > 60 {
 		e.respond(sig, ExecutionResult{Success: false, ErrorMsg: "Stale price (stream lagging or dead)"})
+		_ = e.backend.AcknowledgeSignal(e.ctx, msgID)
 		return
 	}
 
@@ -112,24 +85,17 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 
 	if fillPrice <= 0 {
 		e.respond(sig, ExecutionResult{Success: false, ErrorMsg: "No liquidity (price 0)"})
+		_ = e.backend.AcknowledgeSignal(e.ctx, msgID)
 		return
 	}
 
-	totalCost := fillPrice * sig.Amount
-
-	res, err := tradeScript.Run(e.ctx, e.rdb,
-		[]string{redismantis.HashPortfolioBalance, redismantis.HashTradeLog},
-		sig.Action, sig.Asset, sig.Amount, fillPrice, totalCost, time.Now().Unix(), sig.StrategyID,
-	).Result()
-
+	success, errorMsg, err := e.backend.ExecuteTrade(e.ctx, sig.Action, sig.Asset, sig.Amount, fillPrice, sig.StrategyID)
 	if err != nil {
-		log.Printf("Redis Lua Error: %v", err)
+		log.Printf("Execution Error: %v", err)
 		e.respond(sig, ExecutionResult{Success: false, ErrorMsg: "Internal DB Error"})
+		_ = e.backend.AcknowledgeSignal(e.ctx, msgID)
 		return
 	}
-
-	resSlice := res.([]interface{})
-	success := resSlice[0].(int64) == 1
 
 	result := ExecutionResult{
 		Success:      success,
@@ -138,7 +104,7 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 		Timestamp:    time.Now().Unix(),
 	}
 	if !success {
-		result.ErrorMsg = resSlice[1].(string)
+		result.ErrorMsg = errorMsg
 	}
 
 	e.respond(sig, result)
@@ -147,13 +113,7 @@ func (e *Executor) processSignal(msg redis.XMessage) {
 func (e *Executor) respond(sig Signal, res ExecutionResult) {
 	jsonRes, _ := json.Marshal(res)
 
-	e.rdb.XAdd(e.ctx, &redis.XAddArgs{
-		Stream: redismantis.StreamSignalsOutbound,
-		Values: map[string]interface{}{
-			"strategy_id": sig.StrategyID,
-			"data":        jsonRes,
-		},
-	})
+	e.backend.PublishSignalResult(e.ctx, sig.StrategyID, jsonRes)
 
 	if res.Success {
 		log.Printf("%s %s | Price: %.2f | Amount: %.2f", sig.Action, sig.Asset, res.FilledPrice, sig.Amount)
